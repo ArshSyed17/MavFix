@@ -1,0 +1,124 @@
+# ─────────────────────────────────────────────────────────────────
+#  MavFix Genesis — Remediation Allow-List
+#
+#  Each command entry defines:
+#    tier:        auto | approval | blocked
+#    description: human-readable explanation
+#    tags:        scenario tags this command applies to
+#    timeout_sec: max wall-clock seconds for the action (simulated)
+#    live_cmd:    actual shell command run when LIVE_MODE=true
+#                 Use {params} for dynamic interpolation.
+# ─────────────────────────────────────────────────────────────────
+
+commands:
+
+  # ── AUTO tier — execute immediately, low blast radius ─────────
+
+  restart_pod:
+    tier: auto
+    description: "Restart a single Kubernetes pod to clear transient OOM/crash state."
+    tags: [B, E]
+    timeout_sec: 30
+    live_cmd: "kubectl rollout restart deployment/{params[deployment]} -n {params[namespace]}"
+
+  flush_connection_pool:
+    tier: auto
+    description: "Force-flush the database connection pool to clear stale/blocked connections."
+    tags: [A]
+    timeout_sec: 10
+    live_cmd: "docker exec {params[container]} python manage.py flush_pool"
+
+  scale_replicas:
+    tier: auto
+    description: "Horizontally scale a deployment to absorb traffic spike."
+    tags: [A, B, E]
+    timeout_sec: 45
+    live_cmd: "kubectl scale deployment/{params[deployment]} --replicas={params[count]} -n {params[namespace]}"
+
+  enable_circuit_breaker:
+    tier: auto
+    description: "Force-open the circuit breaker on a degraded service to stop cascading failures."
+    tags: [C]
+    timeout_sec: 5
+    live_cmd: "curl -X POST http://{params[host]}/admin/circuit-breaker/open"
+
+  rotate_log_files:
+    tier: auto
+    description: "Force log rotation to reclaim disk space on saturated volumes."
+    tags: [D]
+    timeout_sec: 15
+    live_cmd: "logrotate -f /etc/logrotate.d/{params[service]}"
+
+  clear_temp_files:
+    tier: auto
+    description: "Delete temporary build/cache artifacts to free disk space."
+    tags: [D]
+    timeout_sec: 20
+    live_cmd: "find {params[path]} -name '*.tmp' -mtime +1 -delete"
+
+  adjust_memory_limit:
+    tier: auto
+    description: "Increase pod memory limit within safe headroom to prevent OOM kills."
+    tags: [B]
+    timeout_sec: 20
+    live_cmd: "kubectl set resources deployment/{params[deployment]} --limits=memory={params[limit]} -n {params[namespace]}"
+
+  # ── APPROVAL tier — require human sign-off before execution ───
+
+  rollback_deployment:
+    tier: approval
+    description: "Roll back a deployment to the previous stable revision. Causes brief downtime."
+    tags: [E]
+    timeout_sec: 120
+    live_cmd: "kubectl rollout undo deployment/{params[deployment]} -n {params[namespace]}"
+
+  drain_node:
+    tier: approval
+    description: "Cordon and drain a node — evicts all pods. High blast radius."
+    tags: [C, D]
+    timeout_sec: 300
+    live_cmd: "kubectl drain {params[node]} --ignore-daemonsets --delete-emptydir-data"
+
+  resize_persistent_volume:
+    tier: approval
+    description: "Expand a PVC storage claim to relieve disk saturation."
+    tags: [D]
+    timeout_sec: 60
+    live_cmd: "kubectl patch pvc {params[pvc]} -p '{{\"spec\":{{\"resources\":{{\"requests\":{{\"storage\":\"{params[size]}\"}}}}}}}}'  -n {params[namespace]}"
+
+  kill_long_running_queries:
+    tier: approval
+    description: "Terminate database sessions exceeding the slow-query threshold."
+    tags: [A]
+    timeout_sec: 10
+    live_cmd: "docker exec {params[container]} psql -U {params[user]} -c \"SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE query_start < now() - interval '{params[threshold]} seconds';\""
+
+  isolate_service:
+    tier: approval
+    description: "Apply a NetworkPolicy to isolate a misbehaving service from the mesh."
+    tags: [C]
+    timeout_sec: 15
+    live_cmd: "kubectl apply -f /ops/policies/isolate-{params[service]}.yaml"
+
+  # ── BLOCKED tier — never execute, surface as warning ──────────
+
+  delete_persistent_volume:
+    tier: blocked
+    description: "BLOCKED: Deleting a PV risks permanent data loss. Requires manual ops review."
+    tags: [D]
+    timeout_sec: 0
+    live_cmd: null
+
+  drop_database:
+    tier: blocked
+    description: "BLOCKED: Dropping a database is irreversible. Escalate to DBA team."
+    tags: [A]
+    timeout_sec: 0
+    live_cmd: null
+
+  force_delete_namespace:
+    tier: blocked
+    description: "BLOCKED: Namespace deletion removes all workloads. Manual ops only."
+    tags: [E]
+    timeout_sec: 0
+    live_cmd: null

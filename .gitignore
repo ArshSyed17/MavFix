@@ -1,0 +1,49 @@
+﻿# Python
+__pycache__/
+*.py[cod]
+*.class
+*.so
+.Python
+env/
+venv/
+.venv/
+dist/
+build/
+*.egg-info/
+
+# Environment / Secrets — NEVER COMMIT
+.env
+*.env
+!.env.example
+
+# SQLite database (runtime artifact)
+*.db
+*.sqlite
+*.sqlite3
+audit_logs/*.db
+
+# Streamlit cache
+.streamlit/
+
+# pytest
+.pytest_cache/
+htmlcov/
+.coverage
+coverage.xml
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+*~
+Thumbs.db
+.DS_Store
+
+# Logs
+*.log
+logs/
+
+# SQLite WAL/SHM files
+*.db-shm
+*.db-wal
+*.db

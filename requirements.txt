@@ -1,0 +1,28 @@
+# ─────────────────────────────────────────────
+#  MavFix Genesis — Python Dependencies
+# ─────────────────────────────────────────────
+
+# LLM
+anthropic>=0.34.0
+
+# Dashboard
+streamlit>=1.38.0
+plotly>=5.24.0
+
+# Data & ML
+pandas>=2.2.0
+numpy>=1.26.0
+scikit-learn>=1.5.0
+
+# Scheduling & async
+APScheduler>=3.10.4
+
+# Config & validation
+pydantic>=2.9.0
+pydantic-settings>=2.5.0
+python-dotenv>=1.0.1
+PyYAML>=6.0.2
+
+# Utilities
+rich>=13.8.0          # pretty console output for simulated remediation
+uuid6>=2024.1.12      # time-ordered UUIDs for correlation IDs
