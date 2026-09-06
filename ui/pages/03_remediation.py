@@ -1,4 +1,4 @@
-"""
+﻿"""
 MavFix Genesis — Page 3: Remediation Control
 Enterprise Datadog/Grafana Grade (Zero Emojis, Strict Proper/Uppercase).
 Split view: auto-executed actions and pending human approvals.
@@ -122,7 +122,7 @@ def render_remediation_fragment() -> None:
                     if st.button(
                         "APPROVE",
                         key=f"rem_approve_{incident.id}_{idx}",
-                        use_container_width=True,
+                        width='stretch',
                     ):
                         ok = manager.approve_step(incident.id, idx)
                         if ok:
@@ -132,7 +132,7 @@ def render_remediation_fragment() -> None:
                     if st.button(
                         "REJECT",
                         key=f"rem_reject_{incident.id}_{idx}",
-                        use_container_width=True,
+                        width='stretch',
                     ):
                         ok = manager.reject_step(incident.id, idx)
                         if ok:

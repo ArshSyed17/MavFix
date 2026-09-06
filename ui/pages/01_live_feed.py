@@ -1,4 +1,4 @@
-"""
+﻿"""
 MavFix Genesis — Page 1: Live Alert Stream
 Enterprise Datadog/Grafana Grade (Zero Emojis, Strict Proper/Uppercase).
 Real-time scrolling alert stream with scenario trigger buttons.
@@ -65,7 +65,7 @@ for col, (tag, label) in zip(cols, SCENARIOS.items()):
             label,
             key=f"trigger_{tag}",
             help=f"Execute Scenario {tag}",
-            use_container_width=True,
+            width='stretch',
         ):
             alerts = manager.trigger(tag)
             st.toast(f"[PIPELINE ACTIVE] Scenario {tag} triggered — {len(alerts)} alerts ingested.")
@@ -84,7 +84,7 @@ with ctrl3:
     svc_search = st.text_input("FILTER SERVICE", placeholder="e.g. postgres", key="feed_svc")
 with ctrl4:
     st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-    if st.button("REFRESH STREAM", key="feed_manual_refresh", use_container_width=True):
+    if st.button("REFRESH STREAM", key="feed_manual_refresh", width='stretch'):
         st.rerun()
 
 

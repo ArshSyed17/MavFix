@@ -1,4 +1,4 @@
-"""
+﻿"""
 MavFix Genesis — Page 4: System Audit Log
 Enterprise Datadog/Grafana Grade (Zero Emojis, Strict Proper/Uppercase).
 Chronological history of all system events — filterable, exportable to CSV.
@@ -146,7 +146,7 @@ if rows:
 
     st.dataframe(
         styled_df,
-        use_container_width=True,
+        width='stretch',
         height=480,
     )
 

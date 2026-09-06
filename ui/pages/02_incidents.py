@@ -1,4 +1,4 @@
-"""
+﻿"""
 MavFix Genesis — Page 2: Active Incidents
 Enterprise Datadog/Grafana Grade (Zero Emojis, Strict Proper/Uppercase).
 Incident cards with LLM root-cause analysis, confidence, and remediation steps.
@@ -57,7 +57,7 @@ with col3:
     )
 with col4:
     st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-    if st.button("REFRESH INCIDENTS", key="inc_manual_refresh", use_container_width=True):
+    if st.button("REFRESH INCIDENTS", key="inc_manual_refresh", width='stretch'):
         st.rerun()
 
 

@@ -1,4 +1,4 @@
-"""
+﻿"""
 MavFix Genesis — Page 5: Executive Analytics
 Enterprise Datadog/Grafana Grade (Zero Emojis, Strict Proper/Uppercase).
 MTTD/MTTR charts, scenario frequency, remediation success rate — all via Plotly.
@@ -60,7 +60,7 @@ def _apply_dark(fig: go.Figure) -> go.Figure:
 
 
 def _display_chart(fig: go.Figure) -> None:
-    st.plotly_chart(_apply_dark(fig), use_container_width=True)
+    st.plotly_chart(_apply_dark(fig), width='stretch')
 
 
 def _to_utc_series(series: pd.Series) -> pd.Series:

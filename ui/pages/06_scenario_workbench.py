@@ -1,4 +1,4 @@
-"""
+﻿"""
 MavFix Genesis — Page 6: Scenario Execution Workbench
 Enterprise Datadog/Grafana Grade (Zero Emojis, Strict Proper/Uppercase).
 Interactive chaos engineering lab and infrastructure context panel.
@@ -238,7 +238,7 @@ for sc in SCENARIOS:
 
         with col_btn:
             st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
-            if st.button(f"EXECUTE SCENARIO {sc['tag']}", key=f"wb_trigger_{sc['tag']}", use_container_width=True):
+            if st.button(f"EXECUTE SCENARIO {sc['tag']}", key=f"wb_trigger_{sc['tag']}", width='stretch'):
                 trigger_fn = getattr(manager, "trigger_scenario", getattr(manager, "trigger", None))
                 alerts = trigger_fn(sc["tag"]) if trigger_fn else []
                 st.session_state["selected_scenario"] = sc["tag"]
