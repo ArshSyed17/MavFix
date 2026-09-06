@@ -24,6 +24,7 @@ if str(ROOT) not in sys.path:
 from config.settings import settings
 from ui.components.alert_card import render_page_header, render_empty_state
 
+# ── Inject CSS ─────────────────────────────────────────────────────
 css_path = Path(__file__).parents[1] / "style.css"
 if css_path.exists():
     st.markdown(f"<style>{css_path.read_text('utf-8')}</style>", unsafe_allow_html=True)
@@ -59,10 +60,31 @@ def _apply_dark(fig: go.Figure) -> go.Figure:
 
 
 def _display_chart(fig: go.Figure) -> None:
-    try:
-        st.plotly_chart(_apply_dark(fig), use_container_width=True)
-    except Exception as e:
-        st.error(f"Chart error: {e}")
+    st.plotly_chart(_apply_dark(fig), use_container_width=True)
+
+
+def _to_utc_series(series: pd.Series) -> pd.Series:
+    """
+    Safely convert a Series of datetime objects (possibly tz-aware or naive)
+    to UTC-normalised pandas Timestamps without throwing TypeError.
+    Alert.timestamp is already tz-aware UTC — pd.to_datetime(..., utc=True)
+    throws if passed pre-tz-aware objects. This converter handles both cases.
+    """
+    def _cvt(v):
+        if isinstance(v, datetime):
+            if v.tzinfo is None:
+                return v.replace(tzinfo=timezone.utc)
+            return v.astimezone(timezone.utc)
+        return v
+    converted = series.map(_cvt)
+    return pd.to_datetime(converted, utc=True, errors="coerce")
+
+
+def _scenario_label(tag) -> str:
+    """Safely resolve a scenario tag to its display name."""
+    if not tag:
+        return "Ambient"
+    return settings.SCENARIO_LABELS.get(str(tag), str(tag))
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -72,15 +94,18 @@ def _display_chart(fig: go.Figure) -> None:
 # ─────────────────────────────────────────────────────────────────
 @st.fragment(run_every=30)
 def _render_analytics() -> None:
+
     # ── Collect data safely ────────────────────────────────────────
     try:
         incidents = manager.incidents()
-    except Exception:
+    except Exception as e:
+        st.error(f"Failed to load incidents: {e}")
         incidents = []
 
     try:
-        recent_alerts = manager.recent_alerts(200)  # 200 is sufficient; 500 was slow
-    except Exception:
+        recent_alerts = manager.recent_alerts(200)
+    except Exception as e:
+        st.error(f"Failed to load alerts: {e}")
         recent_alerts = []
 
     # ── Summary KPIs ───────────────────────────────────────────────
@@ -92,7 +117,12 @@ def _render_analytics() -> None:
         try:
             if inc.alerts:
                 first_alert_ts = min(a.timestamp for a in inc.alerts)
-                mttd = (inc.opened_at - first_alert_ts).total_seconds()
+                opened = inc.opened_at
+                if opened.tzinfo is None:
+                    opened = opened.replace(tzinfo=timezone.utc)
+                if first_alert_ts.tzinfo is None:
+                    first_alert_ts = first_alert_ts.replace(tzinfo=timezone.utc)
+                mttd = (opened - first_alert_ts).total_seconds()
                 mttd_vals.append(max(0.0, mttd))
             mttr_vals.append(float(inc.duration_sec))
         except Exception:
@@ -101,22 +131,22 @@ def _render_analytics() -> None:
     avg_mttd = sum(mttd_vals) / len(mttd_vals) if mttd_vals else 0.0
     avg_mttr = sum(mttr_vals) / len(mttr_vals) if mttr_vals else 0.0
 
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("AVG MTTD", f"{avg_mttd:.0f}S" if avg_mttd else "\u2014")
-    c2.metric("AVG MTTR", f"{avg_mttr:.0f}S" if avg_mttr else "\u2014")
-    c3.metric("INCIDENTS RESOLVED", len(resolved))
-
     all_steps = [
         s for inc in incidents if inc.rca
         for s in inc.rca.remediation_steps
     ]
     executed = [s for s in all_steps if s.status == "executed"]
-    success_rate = (len(executed) / len(all_steps) * 100) if all_steps else 0
+    success_rate = (len(executed) / len(all_steps) * 100) if all_steps else 0.0
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("AVG MTTD", f"{avg_mttd:.0f}S" if avg_mttd else "—")
+    c2.metric("AVG MTTR", f"{avg_mttr:.0f}S" if avg_mttr else "—")
+    c3.metric("INCIDENTS RESOLVED", len(resolved))
     c4.metric("REMEDIATION SUCCESS", f"{success_rate:.0f}%")
 
     st.divider()
 
-    # ── Row 1: Alert volume timeline + Scenario breakdown ──────────
+    # ── Row 1: Alert volume + Scenario distribution ────────────────
     col_left, col_right = st.columns([3, 2])
 
     with col_left:
@@ -126,14 +156,16 @@ def _render_analytics() -> None:
                 rows = [
                     {
                         "timestamp": a.timestamp,
-                        "severity": a.severity.value,
-                        "scenario": a.scenario_tag or "Ambient",
+                        "severity": str(a.severity.value),
+                        "scenario": _scenario_label(a.scenario_tag),
                     }
                     for a in recent_alerts
                 ]
                 alert_df = pd.DataFrame(rows)
-                alert_df["timestamp"] = pd.to_datetime(alert_df["timestamp"], utc=True)
-                alert_df["minute"] = alert_df["timestamp"].dt.floor("1min")
+                # Safe UTC conversion — timestamps are already tz-aware UTC datetimes
+                alert_df["ts"] = _to_utc_series(alert_df["timestamp"])
+                alert_df = alert_df.dropna(subset=["ts"])
+                alert_df["minute"] = alert_df["ts"].dt.floor("1min")
                 vol_df = (
                     alert_df.groupby(["minute", "severity"])
                     .size()
@@ -147,7 +179,8 @@ def _render_analytics() -> None:
                 )
                 fig_vol.update_traces(line_width=1.5)
                 _display_chart(fig_vol)
-            except Exception:
+            except Exception as e:
+                st.warning(f"Alert timeline error: {e}")
                 render_empty_state("DATA", "TIMELINE PENDING", "More telemetry events required")
         else:
             render_empty_state("STREAM", "NO ALERT TELEMETRY AVAILABLE", "Trigger scenarios to populate timeline")
@@ -158,11 +191,12 @@ def _render_analytics() -> None:
             try:
                 scenario_counts: dict[str, int] = {}
                 for a in recent_alerts:
-                    tag = a.scenario_tag or "Ambient"
-                    label = settings.SCENARIO_LABELS.get(tag, tag) if tag != "Ambient" else "Ambient"
+                    label = _scenario_label(a.scenario_tag)
                     scenario_counts[label] = scenario_counts.get(label, 0) + 1
 
-                sc_df = pd.DataFrame(list(scenario_counts.items()), columns=["Scenario", "Alerts"])
+                sc_df = pd.DataFrame(
+                    list(scenario_counts.items()), columns=["Scenario", "Alerts"]
+                )
                 fig_pie = px.pie(
                     sc_df, names="Scenario", values="Alerts",
                     title="ALERT DISTRIBUTION BY SCENARIO",
@@ -170,14 +204,15 @@ def _render_analytics() -> None:
                 )
                 fig_pie.update_traces(textposition="outside", textfont_size=11)
                 _display_chart(fig_pie)
-            except Exception:
-                render_empty_state("DIST", "DISTRIBUTION PENDING", "Waiting for multi-scenario event clusters")
+            except Exception as e:
+                st.warning(f"Scenario distribution error: {e}")
+                render_empty_state("DIST", "DISTRIBUTION PENDING", "Waiting for multi-scenario clusters")
         else:
             render_empty_state("DIST", "NO SCENARIO DATA YET", "Run a scenario to view alert breakdown")
 
     st.divider()
 
-    # ── Row 2: Remediation tier breakdown + Incident severity ──────
+    # ── Row 2: Remediation tier + Incident severity ────────────────
     col_a, col_b = st.columns(2)
 
     with col_a:
@@ -186,14 +221,24 @@ def _render_analytics() -> None:
             try:
                 tier_status: dict[str, int] = {}
                 for s in all_steps:
-                    key = f"{s.tier or 'unknown'}/{s.status}"
+                    tier = (s.tier or "unknown").upper()
+                    status = (s.status or "unknown").upper()
+                    key = f"{tier}/{status}"
                     tier_status[key] = tier_status.get(key, 0) + 1
 
-                ts_df = pd.DataFrame(
-                    [(k.split("/")[0].upper(), k.split("/")[1].upper(), v) for k, v in tier_status.items()],
-                    columns=["tier", "status", "count"],
-                )
-                TIER_COLORS = {"AUTO": "#00E676", "APPROVAL": "#FFB300", "BLOCKED": "#FF5252", "UNKNOWN": "#8B949E"}
+                ts_rows = []
+                for k, v in tier_status.items():
+                    parts = k.split("/", 1)
+                    ts_rows.append({
+                        "tier": parts[0],
+                        "status": parts[1] if len(parts) > 1 else "UNKNOWN",
+                        "count": v,
+                    })
+                ts_df = pd.DataFrame(ts_rows)
+                TIER_COLORS = {
+                    "AUTO": "#00E676", "APPROVAL": "#FFB300",
+                    "BLOCKED": "#FF5252", "UNKNOWN": "#8B949E",
+                }
                 fig_bar = px.bar(
                     ts_df, x="tier", y="count", color="tier",
                     color_discrete_map=TIER_COLORS,
@@ -201,7 +246,8 @@ def _render_analytics() -> None:
                     title="REMEDIATION STEPS BY TIER",
                 )
                 _display_chart(fig_bar)
-            except Exception:
+            except Exception as e:
+                st.warning(f"Remediation chart error: {e}")
                 render_empty_state("REMED", "REMEDIATION METRICS PENDING", "Waiting for executed actions")
         else:
             render_empty_state("REMED", "NO REMEDIATION ACTIONS RECORDED", "Actions execute when incidents are opened")
@@ -212,9 +258,12 @@ def _render_analytics() -> None:
             try:
                 sev_counts: dict[str, int] = {}
                 for inc in incidents:
-                    sev_counts[inc.severity.value] = sev_counts.get(inc.severity.value, 0) + 1
+                    sev = str(inc.severity.value)
+                    sev_counts[sev] = sev_counts.get(sev, 0) + 1
 
-                sev_df = pd.DataFrame(list(sev_counts.items()), columns=["Severity", "Count"])
+                sev_df = pd.DataFrame(
+                    list(sev_counts.items()), columns=["Severity", "Count"]
+                )
                 SEV_COLORS_2 = {"P1": "#FF5252", "P2": "#FFB300", "P3": "#F0883E", "P4": "#8B949E"}
                 fig_sev = px.bar(
                     sev_df, x="Severity", y="Count",
@@ -222,14 +271,15 @@ def _render_analytics() -> None:
                     text_auto=True, title="INCIDENTS BY SEVERITY",
                 )
                 _display_chart(fig_sev)
-            except Exception:
+            except Exception as e:
+                st.warning(f"Severity chart error: {e}")
                 render_empty_state("INC", "SEVERITY DATA PENDING", "Waiting for incident correlation")
         else:
             render_empty_state("INC", "NO INCIDENTS REGISTERED", "Incidents populate when alert thresholds trigger")
 
     st.divider()
 
-    # ── Row 3: MTTR by scenario ────────────────────────────────────
+    # ── Row 3: MTTR scatter ────────────────────────────────────────
     st.markdown("##### MEAN TIME TO RESOLVE (MTTR) BY SCENARIO")
     if resolved:
         try:
@@ -237,9 +287,9 @@ def _render_analytics() -> None:
             for inc in resolved:
                 mttr_rows.append({
                     "incident": inc.name,
-                    "scenario": settings.SCENARIO_LABELS.get(inc.scenario_tag, inc.scenario_tag or "Ambient"),
-                    "mttr_min": inc.duration_sec / 60,
-                    "severity": inc.severity.value,
+                    "scenario": _scenario_label(inc.scenario_tag),
+                    "mttr_min": max(0.0, inc.duration_sec / 60),
+                    "severity": str(inc.severity.value),
                 })
             mttr_df = pd.DataFrame(mttr_rows)
             fig_mttr = px.scatter(
@@ -252,20 +302,26 @@ def _render_analytics() -> None:
             mean_val = float(mttr_df["mttr_min"].mean())
             fig_mttr.add_hline(
                 y=mean_val,
-                line_dash="dash",
-                line_color="#58A6FF",
+                line_dash="dash", line_color="#58A6FF",
                 annotation_text=f"AVG {mean_val:.1f}M",
                 annotation_position="top right",
                 annotation_font_color="#58A6FF",
             )
             _display_chart(fig_mttr)
-        except Exception:
+        except Exception as e:
+            st.warning(f"MTTR chart error: {e}")
             render_empty_state("MTTR", "MTTR CALCULATION PENDING", "Resolved incident history required")
     else:
-        render_empty_state("MTTR", "NO RESOLVED INCIDENTS RECORDED", "MTTR scatter plot generates once incidents reach [RESOLVED]")
+        render_empty_state(
+            "MTTR", "NO RESOLVED INCIDENTS RECORDED",
+            "MTTR scatter plot generates once incidents reach [RESOLVED]",
+        )
 
     # ── RCA Confidence distribution ────────────────────────────────
-    rca_confs = [i.rca.confidence for i in incidents if i.rca]
+    rca_confs = [
+        i.rca.confidence for i in incidents
+        if i.rca and i.rca.confidence is not None
+    ]
     if rca_confs:
         st.divider()
         st.markdown("##### ROOT CAUSE ANALYSIS CONFIDENCE DISTRIBUTION")
@@ -284,7 +340,8 @@ def _render_analytics() -> None:
                 annotation_font_color="#58A6FF",
             )
             _display_chart(fig_hist)
-        except Exception:
+        except Exception as e:
+            st.warning(f"Confidence chart error: {e}")
             render_empty_state("CONF", "CONFIDENCE CALCULATION PENDING", "RCA scoring in progress")
 
     # ── Footer ─────────────────────────────────────────────────────
